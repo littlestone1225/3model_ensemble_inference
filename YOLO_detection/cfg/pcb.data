@@ -1,0 +1,6 @@
+classes = 4
+train = /home/aoi/AOI_PCB_Retrain_detectron2/YOLO_detection/cfg/train.txt
+valid = /home/aoi/AOI_PCB_Retrain_detectron2/YOLO_detection/cfg/valid.txt
+names = /home/aoi/AOI_PCB_Retrain_detectron2/YOLO_detection/cfg/pcb.names
+backup = /home/aoi/AOI_PCB_Retrain_detectron2/YOLO_detection/weights
+eval = pcb-512

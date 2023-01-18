@@ -1,0 +1,26 @@
+production: false
+gpu_list:
+- 0
+- 1
+backup_time: '00_00'
+image_dir: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/factory_img
+image_backup_dir: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/factory_img_backup
+image_wo_border_dir: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/factory_img_wo_border
+inference_result_image_dir: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/factory_result_img
+inference_result_image_backup_dir: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/factory_result_img_backup
+inference_result_label_dir: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/factory_result_json
+inference_result_txt_dir: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/factory_result_txt
+inference_log_file_path: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/inference_result.log
+centernet2_yaml_file_path: /home/aoi/AOI_PCB_Retrain_detectron2/detectron2/projects/CenterNet2/configs/ctr2_retrain1_bs8_20211027.yaml
+centernet2_model_file_path: /home/aoi/AOI_PCB_Retrain_detectron2/models/update/CenterNet2/centernet2_2023_01_12.pth
+centernet2_label_dir: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/centernet2_json
+retinanet_yaml_file_path: /home/aoi/AOI_PCB_Retrain_detectron2/detectron2/configs/COCO-Detection/retinanet_R_101_FPN_3x_PCB.yaml
+retinanet_model_file_path: /home/aoi/AOI_PCB_Retrain_detectron2/models/update/RetinaNet/retinanet_2023_01_12.pth
+retinanet_label_dir: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/retinanet_json
+yolov4_data_file_path: /home/aoi/AOI_PCB_Retrain_detectron2/YOLO_detection/cfg/pcb.data
+yolov4_cfg_file_path: /home/aoi/AOI_PCB_Retrain_detectron2/YOLO_detection/cfg/yolov4-pcb.cfg
+yolov4_model_file_path: /home/aoi/AOI_PCB_Retrain_detectron2/models/update/YoloV4/yolov4_2023_01_12.weights
+yolov4_label_dir: /home/aoi/AOI_PCB_Retrain_detectron2/inference_result/yolov4_json
+crop_w: 512
+crop_h: 512
+margin: 100
