@@ -13,7 +13,7 @@ idx = current_dir.find(aoi_dir_name) + len(aoi_dir_name)
 aoi_dir = current_dir[:idx]
 
 from csv_json_conversion import csv_to_json, json_to_bbox
-from crop_small_image import get_overlap
+from crop_small_image import get_overlap, clahe_transfer
 
 sys.path.append(os.path.join(aoi_dir, "config"))
 from config import read_config_yaml
@@ -239,7 +239,7 @@ def remove_border(imgRaw, shrink_image_wo_border_path=None):
     # filter the black pixel which is not in pcb area
     maskBGR_black = cv2.inRange(imgLab,(0,124,124),(255,132,132)) #################?
     if save_step_image: cv2.imwrite("0_1black.png",maskBGR_black)
-    maskBGR_iron = cv2.inRange(imgLab,(100,118,118),(150,138,138)) ################?
+    maskBGR_iron = cv2.inRange(imgLab,(100,118,118),(200,138,138)) ################?
     if save_step_image: cv2.imwrite("0_2iron.png",maskBGR_iron)
     maskBGR = cv2.bitwise_or(maskBGR_black,maskBGR_iron)
     if save_step_image: cv2.imwrite("0_3union.png",maskBGR)
@@ -250,14 +250,15 @@ def remove_border(imgRaw, shrink_image_wo_border_path=None):
     
     L, a, b = cv2.split(imgLab)
     if save_step_image: cv2.imwrite("0_00L.png",L)
-    ret, thresh = cv2.threshold(L, 100, 255, cv2.THRESH_TOZERO_INV)###############?
-    ret, thresh = cv2.threshold(L, 10, 255, cv2.THRESH_BINARY)
+    ret, thresh = cv2.threshold(L, 240, 255, cv2.THRESH_TOZERO_INV)###############?
+    if save_step_image: cv2.imwrite("0_01thres.png",thresh)
+    ret, thresh = cv2.threshold(thresh, 10, 255, cv2.THRESH_BINARY)
     thresh = cv2.bitwise_and(thresh,maskBGR)
     if save_step_image: cv2.imwrite("0_0thres.png",thresh)
 
 
     low_sigma = cv2.GaussianBlur(thresh,(3,3),0)
-    high_sigma = cv2.GaussianBlur(thresh,(5,5),0)
+    high_sigma = cv2.GaussianBlur(thresh,(9,9),0)
 
     # Calculate the DoG by subtracting
     dog = low_sigma - high_sigma
@@ -379,6 +380,10 @@ def remove_border(imgRaw, shrink_image_wo_border_path=None):
         shrink_image_wo_border = cv2.resize(imgOrg[ymin_2:ymax_2, xmin_2:xmax_2], (0,0), fx=0.6, fy=0.6)
         cv2.imwrite(shrink_image_wo_border_path, shrink_image_wo_border, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
+        # CLAHE image
+        image_clahe = imgOrg[ymin_2:ymax_2, xmin_2:xmax_2].copy()
+        image_clahe_path = shrink_image_wo_border_path.replace(".jpg","_clahe.jpg")
+        image_clahe = clahe_transfer(image_clahe, image_clahe_path, clipLimit=1.0, tileGridSize=(8,8))
     return xmin, ymin, xmax, ymax
 
 def convert_to_border_removal_image_coordinate(bbox_list, crop_rect):
@@ -431,13 +436,18 @@ def remove_black_border_specific_data(input_dict):
         # Remove black border
         if save_shrink_image:
             shrink_image_wo_border_path = os.path.join(shrink_image_wo_border_dir, image_file_name)
-            xmin, ymin, xmax, ymax = remove_black_border_ori(image, shrink_image_wo_border_path)
+            #xmin, ymin, xmax, ymax = remove_black_border_ori(image, shrink_image_wo_border_path)
+            xmin, ymin, xmax, ymax = remove_border(image, shrink_image_wo_border_path)
         else:
-            xmin, ymin, xmax, ymax = remove_black_border_ori(image, None)
+            #xmin, ymin, xmax, ymax = remove_black_border_ori(image, None)
+            xmin, ymin, xmax, ymax = remove_border(image, None)
 
         # Save the without-border image to image_wo_border_dir
         image_wo_border = image[ymin:ymax,xmin:xmax]
         image_wo_border_file_path = os.path.join(image_wo_border_dir, image_file_name)
+        
+        # CLAHE image
+        #image_wo_border = clahe_transfer(image_wo_border, None, clipLimit=1.0, tileGridSize=(8,8))
         cv2.imwrite(image_wo_border_file_path, image_wo_border, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
         # Save the without-border json to label_wo_border_dir
@@ -458,6 +468,9 @@ def remove_black_border_specific_data(input_dict):
             shutil_copyfile(label_wo_border_file_path, label_wo_border_mask_fg_file_path)
 
 
+
+
+
 if __name__ == '__main__':
     # Remove black border for train_data and test_data
     train_data_dict = {
@@ -473,10 +486,25 @@ if __name__ == '__main__':
     }
     #remove_black_border_specific_data(train_data_dict)
     
-    input_path = "../../big_img/"
+    input_path = "../../big_test_crop/"
     for image_file_path in os.listdir(input_path):
         if not image_file_path.endswith("jpg"): continue
         print(image_file_path)
         imgRaw = cv2.imread(input_path+image_file_path)
         remove_black_border_ori(imgRaw, "../../test_crop_border/0_zcut_"+image_file_path.replace(".jpg","_ori.jpg"))
         remove_border(imgRaw, "../../test_crop_border/0_zcut_"+image_file_path)
+        
+
+    # from multiprocessing.pool import Pool
+    # mp_pool = Pool() # (processes=1)
+    # input_path = "../../big_test_crop/"
+    # for image_file_path in os.listdir(input_path):
+    #     if not image_file_path.endswith("jpg"): continue
+    #     print(image_file_path)
+    #     imgRaw = cv2.imread(input_path+image_file_path)
+    #     
+    #     mp_pool.apply_async(remove_black_border_ori, args=(imgRaw, "../../test_crop_border/0_zcut_"+image_file_path.replace(".jpg","_ori.jpg")))
+    #     mp_pool.apply_async(remove_border, args=(imgRaw, "../../test_crop_border/0_zcut_"+image_file_path))
+
+    # mp_pool.close()
+    # mp_pool.join()
