@@ -11,6 +11,7 @@ import numpy as np
 from multiprocessing import Process, Queue, Pipe
 import SharedArray
 
+
 aoi_dir_name = os.getenv('AOI_DIR_NAME')
 assert aoi_dir_name != None, "Environment variable AOI_DIR_NAME is None"
 
@@ -27,7 +28,7 @@ from logger import get_logger
 
 sys.path.append(os.path.join(aoi_dir, "data_preprocess"))
 from remove_black_border import remove_border
-from crop_small_image import crop_sliding_window
+from crop_small_image import crop_sliding_window, clahe_transfer
 from csv_json_conversion import csv_to_json, json_to_bbox
 
 sys.path.append(os.path.join(aoi_dir, "validation"))
@@ -35,7 +36,7 @@ from nms import non_max_suppression_slow
 from validation import unify_batch_predictor_output
 
 sys.path.append(os.path.join(aoi_dir, "ensemble"))
-from ensemble import ensemble
+from ensemble import ensemble,ensemble_add
 
 sys.path.append(os.path.join(aoi_dir, "YOLO_detection"))
 import darknet
@@ -84,6 +85,8 @@ keep_exists = True
 use_centernet2 = True
 use_retinanet = True
 use_yolov4 = True
+aug_CLAHE = True
+select_bbox_add_score = True
 
 # https://stackoverflow.com/questions/46802866/how-to-detect-if-the-jpg-jpeg-image-file-is-corruptedincomplete
 def check_jpg_integrity(image_file_path):
@@ -162,8 +165,13 @@ def dequeue_image_file(image_file_queue, gpu_num, p_id):
         # Save the without-border image to image_wo_border_dir
         image_wo_border = image[ymin:ymax,xmin:xmax]
         image_wo_border_file_path = os.path.join(image_wo_border_dir, image_file_name)
+
+        # CLAHE image
+        if aug_CLAHE:
+            image_wo_border = clahe_transfer(image_wo_border, None, clipLimit=1.0, tileGridSize=(8,8))
         cv2.imwrite(image_wo_border_file_path, image_wo_border, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
+        # crop image
         crop_rect_list, crop_image_list = crop_sliding_window(image_wo_border)
         crop_rect_arr = np.array(crop_rect_list, np.int32)
         crop_image_arr = np.array(crop_image_list, np.uint8)
@@ -268,7 +276,7 @@ def run_retinanet(retinanet_child_conn, gpu_num, p_id):
     cfg.MODEL.WEIGHTS = model_file_path
     cfg.MODEL.RETINANET.SCORE_THRESH_TEST = 0.1
     cfg.freeze()
-    
+
     # Initialize predictor
     predictor = BatchPredictor(cfg)
 
@@ -330,7 +338,7 @@ def run_yolov4(yolov4_child_conn, gpu_num, p_id):
 
         crop_rect_arr = crop_rect_arr.astype(np.int32)
         crop_image_arr = crop_image_arr.astype(np.uint8)
-        crop_image_arr = [cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB) for crop_img in crop_image_arr]	
+        crop_image_arr = [cv2.cvtColor(crop_img, cv2.COLOR_BGR2RGB) for crop_img in crop_image_arr]
 
         if yolov4_batch_size == 1:
             bbox_list = image_detection(crop_image_arr, crop_rect_arr, image_file_name, network, class_names, class_colors, \
@@ -338,7 +346,8 @@ def run_yolov4(yolov4_child_conn, gpu_num, p_id):
         else:
             bbox_list = batch_detection(crop_image_arr, crop_rect_arr, image_file_name, network, class_names, class_colors, \
                                         score_threshold, edge_limit, 0.5, 0.45, yolov4_batch_size)
-
+        
+        bbox_list.sort(key = lambda bbox: bbox[-1], reverse=True)
         bbox_list = non_max_suppression_slow(bbox_list, 0.5)
 
         csv_to_json(bbox_list, image_wo_border_dir, yolov4_label_dir, coord_type="xmin_ymin_xmax_ymax", store_score=True)
@@ -349,10 +358,15 @@ def run_yolov4(yolov4_child_conn, gpu_num, p_id):
         yolov4_child_conn[p_id].send([image_wo_border_dir, json_file_name])
 
 def run_ensemble(gpu_num, p_id):
-    center_threshold = {'3hit': 0.1, '2hit': 0.6, '1hit': 0.9}
-    retina_threshold = {'3hit': 0.1, '2hit': 0.4, '1hit': 0.9}
-    yolov4_threshold = {'3hit': 0.01, '2hit': 0.1, '1hit': 0.9}
-    threshold = [center_threshold, retina_threshold, yolov4_threshold]
+
+    if select_bbox_add_score:
+        threshold = {'3hit': 0.2, '2hit': 0.7, '1hit': 0.8}
+    else:
+        center_threshold = {'3hit': 0.1, '2hit': 0.6, '1hit': 0.9}
+        retina_threshold = {'3hit': 0.1, '2hit': 0.3, '1hit': 0.9}
+        yolov4_threshold = {'3hit': 0.01, '2hit': 0.1, '1hit': 0.6}
+        threshold = [center_threshold, retina_threshold, yolov4_threshold] 
+
     json_idx = 1
     while 1:
         if use_centernet2:
@@ -369,8 +383,13 @@ def run_ensemble(gpu_num, p_id):
         ensemble_child_conn[p_id].send("Ready")
 
         start_time = time.time()
-        ensemble(json_idx, image_wo_border_dir, centernet2_label_dir, retinanet_label_dir, yolov4_label_dir, \
-                 inference_result_label_dir, json_file_name, threshold, dashboard_txt_dir=inference_result_txt_dir)
+        if select_bbox_add_score:
+            ensemble_add(json_idx, image_wo_border_dir, centernet2_label_dir, retinanet_label_dir, yolov4_label_dir, \
+                    inference_result_label_dir, json_file_name, threshold, dashboard_txt_dir=inference_result_txt_dir)
+        else:
+            ensemble(json_idx, image_wo_border_dir, centernet2_label_dir, retinanet_label_dir, yolov4_label_dir, \
+                    inference_result_label_dir, json_file_name, threshold, dashboard_txt_dir=inference_result_txt_dir)
+        
         logger.info("[run_ensemble] gpu_num = {}; run_ensemble time = {:4.3f} s".format(gpu_num, round(time.time()-start_time, 3)))
         ensemble_time_parent_conn[p_id].send(json_file_name)
 
@@ -431,7 +450,7 @@ def measure_ensemble_time(gpu_num, p_id):
 
 if __name__ == '__main__':
     try:
-        gpu_list = config['gpu_list']	
+        gpu_list = config['gpu_list']
         gpu_nums = len(gpu_list)
 
         image_dir = config['image_dir']
@@ -493,7 +512,7 @@ if __name__ == '__main__':
 
             if use_centernet2:
                 p_centernet2[p_id] = Process(target=run_centernet2, name='p_centernet2[{}]'.format(p_id), 
-                                            args=(centernet2_child_conn, gpu_num, p_id))
+                                                args=(centernet2_child_conn, gpu_num, p_id))
                 p_centernet2[p_id].start()
 
             if use_retinanet:
@@ -510,7 +529,7 @@ if __name__ == '__main__':
                                             args=(gpu_num, p_id))
             p_ensemble[p_id].start()
 
-            p_ensemble_time[p_id] = Process(target=measure_ensemble_time, name='p_ensemble_time[{}]'.format(p_id), 
+            p_ensemble_time[p_id] = Process(target=measure_ensemble_time, name='p_ensemble_time[{}]'.format(p_id),
                                             args=(gpu_num, p_id))
             p_ensemble_time[p_id].start()
 
@@ -527,42 +546,42 @@ if __name__ == '__main__':
                 if not p_dequeue_image_file[p_id].is_alive():
                     logger.warning("p_dequeue_image_file[{}] restart".format(p_id))
                     p_dequeue_image_file[p_id] = Process(target=dequeue_image_file, name='p_dequeue_image_file[{}]'.format(p_id), 
-                                                            args=(image_file_queue, gpu_num))
+                                                            args=(image_file_queue, gpu_num, p_id))
                     p_dequeue_image_file[p_id].start()
 
                 if use_centernet2:
                     if not p_centernet2[p_id].is_alive():
                         logger.warning("p_centernet2[{}] restart".format(p_id))
                         p_centernet2[p_id] = Process(target=run_centernet2, name='p_centernet2[{}]'.format(p_id), 
-                                                            args=(centernet2_child_conn, gpu_num, p_id))
+                                                        args=(centernet2_child_conn, gpu_num, p_id))
                         p_centernet2[p_id].start()
                 if use_retinanet:
                     if not p_retinanet[p_id].is_alive():
                         logger.warning("p_retinanet[{}] restart".format(p_id))
                         p_retinanet[p_id] = Process(target=run_retinanet, name='p_retinanet[{}]'.format(p_id), 
-                                                            args=(retinanet_child_conn, gpu_num, p_id))
+                                                    args=(retinanet_child_conn, gpu_num, p_id))
                         p_retinanet[p_id].start()
                 if use_yolov4:
                     if not p_yolov4[p_id].is_alive():
                         logger.warning("p_yolov4[{}] restart".format(p_id))
                         p_yolov4[p_id] = Process(target=run_yolov4, name='p_yolov4[{}]'.format(p_id), 
-                                                            args=(yolov4_child_conn, gpu_num, p_id))
+                                                    args=(yolov4_child_conn, gpu_num, p_id))
                         p_yolov4[p_id].start()
 
                 if not p_ensemble[p_id].is_alive():
                     logger.warning("p_ensemble[{}] restart".format(p_id))
                     p_ensemble[p_id] = Process(target=run_ensemble, name='p_ensemble[{}]'.format(p_id), 
-                                                            args=(gpu_num, p_id))
+                                                args=(gpu_num, p_id))
                     p_ensemble[p_id].start()
 
                 if not p_ensemble_time[p_id].is_alive():
                     logger.warning("p_ensemble_time[{}] restart".format(p_id))
                     p_ensemble_time[p_id] = Process(target=measure_ensemble_time, name='p_ensemble_time[{}]'.format(p_id), 
-                                                            args=(gpu_num, p_id))
+                                                    args=(gpu_num, p_id))
                     p_ensemble_time[p_id].start()
 
             time.sleep(10)
-       
+
     except KeyboardInterrupt:
         for shm in SharedArray.list():
             shm_name = shm.name.decode("utf-8")
