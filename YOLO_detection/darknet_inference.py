@@ -33,14 +33,13 @@ Score_threshold = 0.01
 
 Edge_limit = 20 #pixels
 
-Batch_size = 5
+Batch_size = 1
 
 # yolo config file for load model
 Yolo_config_path = './cfg/'
 Yolo_data_file = Yolo_config_path+'pcb.data'
 Yolo_cfg_file = Yolo_config_path+'yolov4-pcb.cfg'
 Yolo_weights_file = Yolo_config_path+'yolov4-pcb_best.weights'
-Yolo_result_csv = "20T_yolo_result.csv"
 
 #######################################################################
 
@@ -89,7 +88,7 @@ def batch_detection(patches_list, patches_position, filename, network, class_nam
             patches.append(images_list[i])
             i += 1
             images_cnt -= 1
-            
+        
         image_height, image_width, _ = check_batch_shape(patches, now_size)
         darknet_images = prepare_batch(patches, network)
 
@@ -140,14 +139,18 @@ def detection_process(detections,filename,position,edge_limit,window_size):
     selected_detections = []
     edge_limit_max = window_size-edge_limit
     edge_limit_min = edge_limit
-
+    half_size = window_size/2
     # data = [type, score, [l,t,r,b]]
     for data in detections:
         if data[2][0] < edge_limit_min or data[2][1] < edge_limit_min or data[2][0] > edge_limit_max or data[2][1] > edge_limit_max :continue
-        if data[2][2] > window_size or data[2][3] > window_size: continue
+        if data[2][2] > half_size or data[2][3] > half_size: continue
+        
 
         new_w = int(data[2][2])
         new_h = int(data[2][3])
+        if new_w < 4 or new_h <4: continue
+        bbox_ratio = float(new_w)/float(new_h)
+        if bbox_ratio> 100 or bbox_ratio <0.01: continue
         new_l = int(data[2][0] - (new_w/2)) + position[0]
         new_t = int(data[2][1] - (new_h/2)) + position[1]
         new_r = int(data[2][0] + (new_w/2)) + position[0]

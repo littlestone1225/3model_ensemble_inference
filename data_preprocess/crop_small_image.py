@@ -194,14 +194,31 @@ def truncate_bbox_rect(bbox_rect, image_rect):
 
     return [bbox_xmin, bbox_ymin, bbox_xmax, bbox_ymax]
 
+def clahe_transfer(imgRaw, image_clahe_path=None, clipLimit=1.0, tileGridSize=(8,8)):
+    image_clahe = imgRaw.copy()
+    clahe_model = cv2.createCLAHE(clipLimit, tileGridSize)
+    colorimage_b = clahe_model.apply(image_clahe[:,:,0])
+    colorimage_g = clahe_model.apply(image_clahe[:,:,1])
+    colorimage_r = clahe_model.apply(image_clahe[:,:,2])
+    image_clahe = np.stack((colorimage_b,colorimage_g,colorimage_r), axis=2)
+    
+    if image_clahe_path != None:
+        cv2.imwrite(image_clahe_path, image_clahe, [cv2.IMWRITE_PNG_COMPRESSION, 0])
+        logger.info("CLAHE argument image {}".format(image_clahe_path))
+
+    return image_clahe
+
 num_solder_ball = 0
 num_out_of_range = 0
-def crop_small_image(bbox_list, image_file_path, crop_image_dir, crop_label_dir,
+def crop_small_image(bbox_list, image_file_path, crop_image_dir, crop_label_dir, aug_CLAHE=False,
                      mask_bbox_list=[], eliminate_bbox_in_crop_rect=False, first_random_shift=False):
     global num_solder_ball, num_out_of_range
     image = cv2.imread(image_file_path)
     image_h, image_w, _ = image.shape
     image_rect = [0, 0, image_w, image_h]
+
+    if aug_CLAHE :
+        image = clahe_transfer(image, image_clahe_path=None, clipLimit=1.0, tileGridSize=(8,8))
 
     for mask_bbox in mask_bbox_list:
         xmin, ymin, xmax, ymax = mask_bbox[2:6]
@@ -288,6 +305,12 @@ def crop_small_image(bbox_list, image_file_path, crop_image_dir, crop_label_dir,
         else:
             delta_ymax = crop_h
 
+
+        if aug_CLAHE :
+            suffix = "{:03d}_clahe_{}_{}_{}_{}".format(num, xmin, ymin, xmax, ymax)
+        else:
+            suffix = "{:03d}_{}_{}_{}_{}".format(num, xmin, ymin, xmax, ymax)
+
         if [delta_xmin, delta_ymin, delta_xmax, delta_ymax] != [0, 0, crop_w, crop_h]:
             crop_rect = [crop_xmin, crop_ymin, crop_xmax, crop_ymax]
             delta_rect = [delta_xmin, delta_ymin, delta_xmax, delta_ymax]
@@ -298,14 +321,12 @@ def crop_small_image(bbox_list, image_file_path, crop_image_dir, crop_label_dir,
             black_border_image[delta_ymin:delta_ymax, delta_xmin:delta_xmax] = image[crop_ymin:crop_ymax, crop_xmin:crop_xmax]
             crop_image = black_border_image
 
-            suffix = "{:03d}_{}_{}_{}_{}".format(num, xmin, ymin, xmax, ymax)
             bbox_crop_coord = convert_to_black_border_image_coordinate(bbox_in_crop_rect, crop_rect, delta_rect, black_border_image, name_suffix=suffix) # crop image coordinate
         else:
             bbox_in_crop_rect = get_bbox_in_crop_rect(bbox_list, crop_rect) # original image coordinate
             bbox_in_crop_rect = filter_error_type_from_bbox_list(bbox_in_crop_rect, ['solder_ball'])
             crop_image = image[crop_ymin:crop_ymax, crop_xmin:crop_xmax]
 
-            suffix = "{:03d}_{}_{}_{}_{}".format(num, xmin, ymin, xmax, ymax)
             bbox_crop_coord = convert_to_crop_image_coordinate(bbox_in_crop_rect, crop_rect, crop_image, name_suffix=suffix) # crop image coordinate
 
         if eliminate_bbox_in_crop_rect:
@@ -322,12 +343,15 @@ def crop_small_image(bbox_list, image_file_path, crop_image_dir, crop_label_dir,
         csv_to_json(bbox_crop_coord, crop_image_dir, crop_label_dir, coord_type="xmin_ymin_xmax_ymax")
         num = num + 1
 
-def crop_small_image_w_aug(bbox_list, image_file_path, crop_image_dir, crop_label_dir, aug_num_dict, mask_bbox_list=[],
-                           enhance_bbox_list=[], enhance_aug_num=0, first_random_shift=False):
+def crop_small_image_w_aug(bbox_list, image_file_path, crop_image_dir, crop_label_dir, aug_num_dict, aug_CLAHE=True, 
+                           mask_bbox_list=[], enhance_bbox_list=[], enhance_aug_num=0, first_random_shift=False):
     global num_solder_ball, num_out_of_range
     image = cv2.imread(image_file_path)
     image_h, image_w, _ = image.shape
     image_rect = [0, 0, image_w, image_h]
+
+    if aug_CLAHE :
+        image = clahe_transfer(image, image_clahe_path=None, clipLimit=1.0, tileGridSize=(8,8))
 
     for mask_bbox in mask_bbox_list:
         xmin, ymin, xmax, ymax = mask_bbox[2:6]
@@ -418,6 +442,11 @@ def crop_small_image_w_aug(bbox_list, image_file_path, crop_image_dir, crop_labe
             else:
                 delta_ymax = crop_h
 
+            if aug_CLAHE :
+                suffix = "{:03d}_clahe_{}_{}_{}_{}".format(num, xmin, ymin, xmax, ymax)
+            else:
+                suffix = "{:03d}_{}_{}_{}_{}".format(num, xmin, ymin, xmax, ymax)
+
             if [delta_xmin, delta_ymin, delta_xmax, delta_ymax] != [0, 0, crop_w, crop_h]:
                 crop_rect = [crop_xmin, crop_ymin, crop_xmax, crop_ymax]
                 delta_rect = [delta_xmin, delta_ymin, delta_xmax, delta_ymax]
@@ -428,14 +457,12 @@ def crop_small_image_w_aug(bbox_list, image_file_path, crop_image_dir, crop_labe
                 black_border_image[delta_ymin:delta_ymax, delta_xmin:delta_xmax] = image[crop_ymin:crop_ymax, crop_xmin:crop_xmax]
                 crop_image = black_border_image
 
-                suffix = "{:03d}_{}_{}_{}_{}".format(num, xmin, ymin, xmax, ymax)
                 bbox_crop_coord = convert_to_black_border_image_coordinate(bbox_in_crop_rect, crop_rect, delta_rect, black_border_image, name_suffix=suffix) # crop image coordinate
             else:
                 bbox_in_crop_rect = get_bbox_in_crop_rect(bbox_list, crop_rect) # original image coordinate
                 bbox_in_crop_rect = filter_error_type_from_bbox_list(bbox_in_crop_rect, ['solder_ball'])
                 crop_image = image[crop_ymin:crop_ymax, crop_xmin:crop_xmax]
 
-                suffix = "{:03d}_{}_{}_{}_{}".format(num, xmin, ymin, xmax, ymax)
                 bbox_crop_coord = convert_to_crop_image_coordinate(bbox_in_crop_rect, crop_rect, crop_image, name_suffix=suffix) # crop image coordinate
 
             logger.debug("crop_rect = {}".format(crop_rect))
@@ -450,7 +477,7 @@ def crop_small_image_w_aug(bbox_list, image_file_path, crop_image_dir, crop_labe
             csv_to_json(bbox_crop_coord, crop_image_dir, crop_label_dir, coord_type="xmin_ymin_xmax_ymax")
             num = num + 1
 
-def crop_retrain_data(set_type, aug_num_dict=None):
+def crop_retrain_data(set_type, aug_num_dict=None, aug_CLAHE=False):
     retrain_data_org_pre_dir = config['retrain_data_org_pre_dir']
     fn_image_dir = os.path.join(retrain_data_org_pre_dir, 'images')
     fn_label_dir = os.path.join(retrain_data_org_pre_dir, 'labels')
@@ -491,13 +518,26 @@ def crop_retrain_data(set_type, aug_num_dict=None):
         image_file_path = os.path.join(fn_image_dir, image_file_name)
         if aug_num_dict == None:
             crop_small_image(fn_bbox_list, image_file_path, crop_image_dir, crop_label_dir,
-                             mask_bbox_list=infer_bbox_list, eliminate_bbox_in_crop_rect=True,
-                             first_random_shift=False)
+                                 aug_CLAHE=False, mask_bbox_list=infer_bbox_list, eliminate_bbox_in_crop_rect=True,
+                                 first_random_shift=False)
+            if aug_CLAHE:
+                crop_small_image(fn_bbox_list, image_file_path, crop_image_dir, crop_label_dir,
+                                 aug_CLAHE=True, mask_bbox_list=infer_bbox_list, eliminate_bbox_in_crop_rect=True,
+                                 first_random_shift=False)
+
         else:
             crop_small_image_w_aug(fn_bbox_list, image_file_path, crop_image_dir, crop_label_dir, aug_num_dict,
-                                   mask_bbox_list=infer_bbox_list, first_random_shift=False)
+                                       aug_CLAHE=False, mask_bbox_list=infer_bbox_list, first_random_shift=False)
+            if aug_CLAHE:
+                crop_small_image_w_aug(fn_bbox_list, image_file_path, crop_image_dir, crop_label_dir, aug_num_dict,
+                                       aug_CLAHE=True, mask_bbox_list=infer_bbox_list, first_random_shift=False)
 
-def random_crop_and_aug_train_data(aug_num_dict, train_data_dir):
+                
+
+        
+
+
+def random_crop_and_aug_train_data(aug_num_dict, train_data_dir, aug_CLAHE=False):
     '''
     image_dir = os.path.join(train_data_dir, 'images') # .jpg
     label_dir = os.path.join(train_data_dir, 'labels') # .json
@@ -531,12 +571,15 @@ def random_crop_and_aug_train_data(aug_num_dict, train_data_dir):
         if len(bbox_list) > 0:
             image_file_name = os.path.splitext(json_file_name)[0] + '.jpg'
             image_file_path = os.path.join(image_dir, image_file_name)
-            crop_small_image_w_aug(bbox_list, image_file_path, crop_image_dir, crop_label_dir, aug_num_dict,
+            crop_small_image_w_aug(bbox_list, image_file_path, crop_image_dir, crop_label_dir, aug_num_dict, aug_CLAHE=False,
+                                   enhance_bbox_list=enhance_bbox_list, enhance_aug_num=enhance_aug_num, first_random_shift=True)
+            if aug_CLAHE:                     
+                crop_small_image_w_aug(bbox_list, image_file_path, crop_image_dir, crop_label_dir, aug_num_dict, aug_CLAHE=True,
                                    enhance_bbox_list=enhance_bbox_list, enhance_aug_num=enhance_aug_num, first_random_shift=True)
 
     logger.info("num_solder_ball = {}, num_out_of_range = {}".format(num_solder_ball, num_out_of_range))
 
-def random_crop_test_data(test_data_dir):
+def random_crop_test_data(test_data_dir,aug_CLAHE=False):
     image_dir = os.path.join(test_data_dir, 'images') # .jpg
     label_dir = os.path.join(test_data_dir, 'labels') # .json
 
@@ -556,7 +599,10 @@ def random_crop_test_data(test_data_dir):
             image_file_name = os.path.splitext(json_file_name)[0] + '.jpg'
             image_file_path = os.path.join(image_dir, image_file_name)
             crop_small_image(bbox_list, image_file_path, crop_image_dir, crop_label_dir, \
-                             eliminate_bbox_in_crop_rect=True, first_random_shift=False)
+                             aug_CLAHE=False, eliminate_bbox_in_crop_rect=True, first_random_shift=False)
+            if aug_CLAHE:
+                crop_small_image(bbox_list, image_file_path, crop_image_dir, crop_label_dir, \
+                             aug_CLAHE=True, eliminate_bbox_in_crop_rect=True, first_random_shift=False)
 
     logger.debug("num_solder_ball = {}, num_out_of_range = {}".format(num_solder_ball, num_out_of_range))
 
@@ -642,7 +688,7 @@ def mask_fg_across_crop_image_margin(crop_image, margin_bbox_list):
         image[ymin:ymax, xmin:xmax] = [0,0,0]
     return image
 
-def crop_and_save_sliding_window(input_dict):
+def crop_and_save_sliding_window(input_dict,aug_CLAHE=True):
     image_wo_border_dir = input_dict['image_wo_border_dir']
     label_wo_border_dir = input_dict['label_wo_border_dir']
     image_sliding_crop_dir = input_dict['image_sliding_crop_dir']
@@ -656,6 +702,9 @@ def crop_and_save_sliding_window(input_dict):
         image_file_path = os.path.join(image_wo_border_dir, image_file_name)
         image = cv2.imread(image_file_path)
         image_h, image_w, _ = image.shape
+
+        if aug_CLAHE:
+            image = clahe_transfer(image, image_clahe_path=None, clipLimit=1.0, tileGridSize=(8,8))
 
         json_file_name = os.path.splitext(image_file_name)[0] + '.json'
         json_file_path = os.path.join(label_wo_border_dir, json_file_name)
@@ -710,20 +759,29 @@ def crop_and_save_sliding_window(input_dict):
                 # Filter out some anomaly
                 bbox_in_crop_rect = filter_error_type_from_bbox_list(bbox_in_crop_rect, ['solder_ball'])
 
+
+                suffix = ""
+
+                if aug_CLAHE:
+                    suffix = "{:03d}_clahe_".format(num)
+                else:
+                    suffix = "{:03d}_".format(num)
+
                 if mask_fg_across_margin:
                     if len(bbox_in_crop_rect) > 0:
-                        suffix = "{:03d}_fg_".format(num)
+                        suffix = suffix + "fg_"
                     else:
-                        suffix = "{:03d}_bg_".format(num)
+                        suffix = suffix + "bg_"
                     # margin_bbox_list is on crop image coordinate
                     margin_bbox_list = convert_bbox_list_to_coordinate_list(bbox_across_crop_rect, crop_rect)
                     if len(margin_bbox_list) > 0:
                         crop_image = mask_fg_across_crop_image_margin(crop_image, margin_bbox_list)
-                        suffix = suffix +"mask_margin_{}_{}_{}_{}".format(*crop_rect)
+                        suffix = suffix + "mask_margin_{}_{}_{}_{}".format(*crop_rect)
                     else:
-                        suffix = suffix +"{}_{}_{}_{}".format(*crop_rect)
+                        suffix = suffix + "{}_{}_{}_{}".format(*crop_rect)
+
                 else:
-                    suffix = "{:03d}_{}_{}_{}_{}".format(num, *crop_rect)
+                    suffix = suffix + "{}_{}_{}_{}".format(*crop_rect)
 
                 crop_image_file_name = "{}_{}{}".format(image_file_name_wo_ext, suffix, ext)
                 crop_image_file_path = os.path.join(image_sliding_crop_dir, crop_image_file_name)
