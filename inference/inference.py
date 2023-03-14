@@ -153,7 +153,7 @@ def dequeue_image_file(image_file_queue, gpu_num, p_id):
         image_file_name = image_file_queue.get()
         start_time = time.time()
         image_file_path = os.path.join(image_dir, image_file_name)
-        image = cv2.imread(image_file_path)
+        image = cv2.imread(image_file_path) #bgr color
         logger.info("[dequeue_image_file] gpu_num = {}; image_file_name = {}".format(gpu_num, image_file_name))
         xmin, ymin, xmax, ymax = remove_border(image, None)
 
@@ -407,6 +407,7 @@ def draw_bbox(json_file_name, result_image_dir):
 
     for bbox in bbox_list:
         xmin, ymin, xmax, ymax = bbox[2:6]
+        '''
         cv2.rectangle(image, (xmin, ymin), (xmax, ymax), (0, 0, 255), 8)
         '''
         score = bbox[6]
@@ -425,7 +426,7 @@ def draw_bbox(json_file_name, result_image_dir):
             cv2.rectangle(overlay, (xmin, ymin), (xmax, ymax), (0, 255, 0), 4)
         cv2.addWeighted(overlay, alpha, image, 1-alpha, 0, image)
         cv2.addWeighted(overlay, alpha, image, 1-alpha, 0, image)
-        '''
+        
     result_image_file_path = os.path.join(inference_result_image_dir, image_file_name)
     cv2.imwrite(result_image_file_path, image, [cv2.IMWRITE_PNG_COMPRESSION, 0])
 
